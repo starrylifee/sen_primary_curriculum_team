@@ -3,7 +3,8 @@ import json
 import os
 import pathlib
 import toml
-from langchain.schema import ChatMessage, HumanMessage, SystemMessage
+from langchain.schema import BaseMessage as ChatMessage
+from langchain.schema import HumanMessage, SystemMessage
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
