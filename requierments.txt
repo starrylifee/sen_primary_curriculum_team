@@ -1,0 +1,6 @@
+streamlit
+langchain
+openai
+pdfplumber
+faiss-cpu
+toml
