@@ -50,28 +50,41 @@ def initialize_session_state():
     if "pdf_retriever" not in st.session_state:
         st.session_state["pdf_retriever"] = None
     if "custom_prompt" not in st.session_state:
-        st.session_state["custom_prompt"] = ""
+        st.session_state["custom_prompt"] = "파일을 분석해서 질문에 답해주세요."
     if "final_prompt" not in st.session_state:
-        st.session_state["final_prompt"] = ""
+        st.session_state["final_prompt"] = st.session_state["custom_prompt"]
 
 initialize_session_state()
 
 st.title("2024 학적 · 생활기록 도움 챗봇 🤖")
 
-# 파일 경로 및 초기 프롬프트 설정
+# 사이드바: 가변형 프롬프트 입력
+st.sidebar.header("Custom Prompt")
+custom_prompt = st.sidebar.text_area("여기에 프롬프트를 입력하세요", st.session_state["custom_prompt"], height=200)
+
+# 프롬프트 적용 버튼
+if st.sidebar.button("프롬프트 적용"):
+    st.session_state["final_prompt"] = custom_prompt
+    st.sidebar.success("프롬프트가 적용되었습니다.")
+
+# 프롬프트 초기화 버튼
+if st.sidebar.button("프롬프트 초기화"):
+    st.session_state["custom_prompt"] = ""
+    st.session_state["final_prompt"] = ""
+    st.sidebar.success("프롬프트가 초기화되었습니다.")
+
+# 현재 사용중인 프롬프트 출력
+st.sidebar.markdown("### 현재 사용 중인 프롬프트")
+st.sidebar.text(st.session_state["final_prompt"])
+
+# 파일 경로 및 프롬프트 설정
 file_paths = [
     "./files/2024 초등 학교생활기록부 기재요령.pdf", 
     "./files/2024 학적업무 도움자료.pdf", 
     "./files/초중등교육법 시행령(대통령령).pdf", 
     "./files/초중등교육법(법률)(제19740호).pdf"
 ]
-default_prompt_text = "파일을 분석해서 질문에 답해주세요."
 selected_model = "gpt-4o-mini"
-
-def print_messages():
-    """이전 대화 메시지 출력."""
-    for chat_message in st.session_state["messages"]:
-        st.write(f"{chat_message.role}: {chat_message.content}")
 
 def add_message(role, message):
     """새로운 대화 메시지 추가."""
@@ -114,7 +127,12 @@ def create_chain(retriever, prompt_text, model_name):
             HumanMessage(content=f"{context}\n\n질문: {question}")
         ]
         output = llm.invoke(messages)
-        return output.content if isinstance(output, ChatMessage) else str(output), context_docs
+        
+        # 텍스트만 반환하도록 처리 (메타데이터 제거)
+        if isinstance(output, ChatMessage):
+            return output.content, context_docs  # ChatMessage의 content 속성만 반환
+        else:
+            return str(output), context_docs
     
     return chain
 
@@ -126,28 +144,21 @@ def extract_reference_from_metadata(docs):
         references.append(f"문서: {doc.metadata.get('document_name', '알 수 없음')}, 페이지: {doc.metadata.get('page_number', '알 수 없음')}")
     return " | ".join(references)
 
+def clean_response(response):
+    """응답 문자열에서 'content=' 부분을 제거하고 실제 텍스트만 반환"""
+    if "content=" in response:
+        # 'content=' 이후의 실제 텍스트만 추출하고 메타데이터 부분은 제거
+        cleaned_response = response.split("content=", 1)[1].split("response_metadata=", 1)[0]
+        # 텍스트에서 불필요한 따옴표와 개행 문자 등을 적절히 처리
+        cleaned_response = cleaned_response.replace("\\n", "\n").replace("'", "").replace("\\", "").strip()
+        return cleaned_response
+    return response.replace("\\n", "\n").replace("'", "").replace("\\", "").strip()
+
 # 파일들을 임베딩하고 검색 기능을 생성
 retriever = embed_files(file_paths)
-chain = create_chain(retriever, prompt_text=default_prompt_text, model_name=selected_model)
+chain = create_chain(retriever, prompt_text=st.session_state["final_prompt"], model_name=selected_model)
 st.session_state["pdf_retriever"] = retriever
 st.session_state["pdf_chain"] = chain
-
-# 사이드바: 가변형 프롬프트 입력
-st.sidebar.header("Custom Prompt")
-custom_prompt = st.sidebar.text_area("여기에 프롬프트를 입력하세요", st.session_state["custom_prompt"], height=200)
-
-# 프롬프트 적용 버튼
-if st.sidebar.button("프롬프트 적용"):
-    st.session_state["final_prompt"] = custom_prompt
-    st.sidebar.success("프롬프트가 적용되었습니다.")
-
-# 프롬프트 초기화 버튼
-if st.sidebar.button("프롬프트 초기화"):
-    st.session_state["custom_prompt"] = ""
-    st.session_state["final_prompt"] = ""
-    st.sidebar.success("프롬프트가 초기화되었습니다.")
-
-print_messages()
 
 # 질문 입력과 답변 생성 버튼
 user_input = st.text_input("질문을 입력하세요", placeholder="예) 의무교육관리위원회는 어떻게 구성하나? / 정원외 관리의 절차를 알려줘.")
@@ -156,22 +167,21 @@ generate_btn = st.button("✨ 답변 생성")
 if generate_btn and user_input:
     chain = st.session_state["pdf_chain"]
     if chain:
-        # 최종 프롬프트 사용 (가변형 프롬프트 적용)
-        final_prompt = st.session_state["final_prompt"] or default_prompt_text
-        chain = create_chain(retriever, prompt_text=final_prompt, model_name=selected_model)
-        
         with st.spinner("AI 응답을 생성하는 중입니다..."):
             response, context_docs = chain(user_input)
-            ai_answer = response  # 응답에서 답변 텍스트 추출
+            
+            # response를 클린업
+            ai_answer = clean_response(response)
             
             # 레퍼런스 추출
             reference = extract_reference_from_metadata(context_docs)
             
             # 출력 레이아웃
+            st.markdown("### 답변 및 관련 근거")
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**답변**")
-                st.markdown(ai_answer)
+                st.markdown(ai_answer)  # 오직 content만 출력되도록 보장
             with col2:
                 st.markdown("**관련 근거**")
                 st.markdown(reference)
