@@ -161,7 +161,7 @@ st.session_state["pdf_retriever"] = retriever
 st.session_state["pdf_chain"] = chain
 
 # 질문 입력과 답변 생성 버튼
-user_input = st.text_input("질문을 입력하세요", placeholder="예) 의무교육관리위원회는 어떻게 구성하나? / 정원외 관리의 절차를 알려줘.")
+user_input = st.text_input("질문을 입력하세요", placeholder="예) 의무교육관리위원회는 어떻게 구성하나요? / 정원외 관리의 절차를 알려줘.")
 generate_btn = st.button("✨ 답변 생성")
 
 if generate_btn and user_input:
