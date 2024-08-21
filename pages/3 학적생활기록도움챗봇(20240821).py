@@ -3,13 +3,12 @@ import json
 import os
 import pathlib
 import toml
-from langchain.schema import BaseMessage as ChatMessage
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.chat_models import ChatOpenAI
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import PDFPlumberLoader
-from langchain.vectorstores import FAISS
+from langchain_core.messages import ChatMessage, HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_core.output_parsers import StrOutputParser
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PDFPlumberLoader
+from langchain_community.vectorstores import FAISS
 
 # Streamlit의 기본 메뉴와 푸터 숨기기
 hide_github_icon = """
@@ -65,11 +64,6 @@ file_paths = [
 fixed_prompt_text = "파일을 분석해서 질문에 답해주세요."
 selected_model = "gpt-4o-mini"
 
-def print_messages():
-    """이전 대화 메시지 출력."""
-    for chat_message in st.session_state["messages"]:
-        st.write(f"{chat_message.role}: {chat_message.content}")
-
 def add_message(role, message):
     """새로운 대화 메시지 추가."""
     st.session_state["messages"].append(ChatMessage(role=role, content=message))
@@ -110,31 +104,41 @@ def create_chain(retriever, prompt_text, model_name):
             SystemMessage(content=prompt_text),
             HumanMessage(content=f"{context}\n\n질문: {question}")
         ]
-        output = llm(messages)
+        output = llm.invoke(messages)
         
         # 텍스트만 반환하도록 처리 (메타데이터 제거)
         if isinstance(output, ChatMessage):
-            return output.content, context_docs
+            return output.content, context_docs  # ChatMessage의 content 속성만 반환
         else:
             return str(output), context_docs
     
     return chain
 
 def extract_reference_from_metadata(docs):
-    """레퍼런스 정보를 추출하는 함수."""
-    # 문서 이름과 페이지 정보 추출
+    """레퍼런스 정보를 추출하는 함수. 문서 이름, 페이지 번호와 함께 해당 페이지의 내용도 포함."""
     references = []
     for doc in docs:
-        references.append(f"문서: {doc.metadata.get('document_name', '알 수 없음')}, 페이지: {doc.metadata.get('page_number', '알 수 없음')}")
-    return " | ".join(references)
+        document_name = doc.metadata.get('document_name', '알 수 없음')
+        page_number = doc.metadata.get('page_number', '알 수 없음')
+        page_content = doc.page_content.strip()[:200]  # 첫 200자를 가져오거나 필요에 따라 조정 가능
+        references.append(f"문서: {document_name}, 페이지: {page_number}\n내용: {page_content}...")
+    return "\n\n".join(references)
+
+def clean_response(response):
+    """응답 문자열에서 'content=' 부분을 제거하고 실제 텍스트만 반환"""
+    if "content=" in response:
+        # 'content=' 이후의 실제 텍스트만 추출하고 메타데이터 부분은 제거
+        cleaned_response = response.split("content=", 1)[1].split("response_metadata=", 1)[0]
+        # 텍스트에서 불필요한 따옴표와 개행 문자 등을 적절히 처리
+        cleaned_response = cleaned_response.replace("\\n", "\n").replace("'", "").replace("\\", "").strip()
+        return cleaned_response
+    return response.replace("\\n", "\n").replace("'", "").replace("\\", "").strip()
 
 # 파일들을 임베딩하고 검색 기능을 생성
 retriever = embed_files(file_paths)
 chain = create_chain(retriever, prompt_text=fixed_prompt_text, model_name=selected_model)
 st.session_state["pdf_retriever"] = retriever
 st.session_state["pdf_chain"] = chain
-
-print_messages()
 
 # 질문 입력과 답변 생성 버튼
 user_input = st.text_input("질문을 입력하세요", placeholder="예) 의무교육관리위원회는 어떻게 구성하나? / 정원외 관리의 절차를 알려줘.")
@@ -145,20 +149,19 @@ if generate_btn and user_input:
     if chain:
         with st.spinner("AI 응답을 생성하는 중입니다..."):
             response, context_docs = chain(user_input)
-            ai_answer = response  # 응답에서 답변 텍스트 추출
             
-            # 불필요한 메타데이터를 제거하고 텍스트만 출력
-            if isinstance(ai_answer, str):
-                ai_answer = ai_answer.strip()  # 문자열에서 불필요한 공백 제거
+            # response를 클린업
+            ai_answer = clean_response(response)
             
-            # 레퍼런스 추출
+            # 레퍼런스 추출 (문서 내용과 함께)
             reference = extract_reference_from_metadata(context_docs)
             
             # 출력 레이아웃
+            st.markdown("### 답변 및 관련 근거")
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**답변**")
-                st.markdown(ai_answer)
+                st.markdown(ai_answer)  # 오직 content만 출력되도록 보장
             with col2:
                 st.markdown("**관련 근거**")
                 st.markdown(reference)
