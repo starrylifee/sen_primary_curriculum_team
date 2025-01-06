@@ -89,7 +89,7 @@ def embed_files(file_paths):
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
     split_documents = text_splitter.split_documents(all_docs)
-    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+    embeddings = OpenAIEmbeddings(api_key=openai_api_key)
     vectorstore = FAISS.from_documents(documents=split_documents, embedding=embeddings)
     return vectorstore.as_retriever()
 
