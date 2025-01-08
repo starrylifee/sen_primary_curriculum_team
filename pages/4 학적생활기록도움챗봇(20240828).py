@@ -35,6 +35,7 @@ except FileNotFoundError:
 
 # OpenAI API 키 로드
 openai_api_key = secrets.get("OPENAI", {}).get("API_KEY")
+st.write(f"OpenAI API Key: {openai_api_key}")
 if not openai_api_key:
     st.error("OpenAI API key is missing. Please ensure it is set in the secrets.toml file.")
 
